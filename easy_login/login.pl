@@ -1,5 +1,6 @@
 use v5.20;
 use Data::Dumper;
+use DBIx::Simple;
 use Switch;
 
 sub valid_username {
@@ -35,7 +36,7 @@ sub request_credentials {
 	return ($username, $password);
 }
 
-sub login_prompt {
+sub login_prompt_file {
 	my ($filename) = @_;
 	my ($username, $password) = request_credentials();
 
@@ -58,13 +59,19 @@ sub login_prompt {
 	return $found;
 }
 
-sub add_user_prompt {
-	my ($filename) = @_;
-	my ($username, $password) = request_credentials();
-	if (not(valid_username($username) and valid_password($password))) {
-		print ("Invalid username/password combination.\n");
-		return;
-	}
+sub login_prompt_db {
+    my ($username, $password) = request_credentials();
+
+    my $db = DBIx::Simple->connect('DBI:Pg:database=login', 'bianca', '', { RaiseError => 1 });
+    my ($result) = $db->query("SELECT COUNT(*) FROM users where username = '$username' and password = '$password'")->list;
+
+    $db->disconnect();
+
+    return $result;
+}
+
+sub save_user_file {
+	my ($filename, $username, $password) = @_;
 
 	open(my $file_handle, '>>', $filename)
   		or die "Could not open file '$filename' $!\n";
@@ -73,6 +80,27 @@ sub add_user_prompt {
 
   	close $file_handle
   		or die "Could not close file handle for file $filename.\n";
+}
+
+sub save_user_db {
+	my ($username, $password) = @_;
+
+	my $db = DBIx::Simple->connect('DBI:Pg:database=login', 'bianca', '', { RaiseError => 1 });
+
+	$db->query("INSERT INTO users(username, password) VALUES(?, ?)", $username, $password)
+		or die("Could not insert user into the database.");
+	$db->disconnect();
+}
+
+sub add_user_prompt {
+	my ($filename) = @_;
+	my ($username, $password) = request_credentials();
+	if (not(valid_username($username) and valid_password($password))) {
+		print ("Invalid username/password combination.\n");
+		return;
+	}
+
+	save_user_db($username, $password);
 }
 
 say "Welcome. You might be among the special ones having an account on our platform. \nPlease insert your credentials to find out and gain access to cool features!";
@@ -100,7 +128,7 @@ while (not $exit_req) {
 
 		switch ($option) {
 			case 1 {
-				my $found = login_prompt($filename);
+				my $found = login_prompt_db($filename);
 				if ($found) {
 					print "Logged in.\n";
 					$logged_in = 1;
